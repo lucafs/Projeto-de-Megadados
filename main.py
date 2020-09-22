@@ -6,6 +6,42 @@ import json
 
 app = FastAPI()
 
+class DBSession:
+    tasks = {}
+    def __init__(self):
+        self.tasks = DBSession.tasks
+    
+    def read_tasks(self, completed):
+        return {
+            uuid_: item
+            for uuid_, item in self.tasks.items()
+            if item.completed == completed
+        }
+
+    def create_task(self, content):
+        uuid_ = uuid.uuid4()
+        self.tasks[uuid_] = content
+        return ("Task " + uuid_ + " was created with success")
+    
+    def read_task(self, uuid_):
+        return self.tasks[uuid_]
+    
+    def replace_task(self, uuid_, item):
+        if uuid_ in self.tasks:
+            self.tasks[uuid_] = item
+        else:
+            return "UUID not found"
+    
+    def remove_task(self, uuid_):
+        if uuid_ in self.tasks:
+            del self.tasks[uuid_]
+            return "Task removida com sucesso"
+        return "UUID not found"
+
+def get_db():
+    return DBSession()
+
+
 class Assignment(BaseModel):
     description: str
     status: bool
