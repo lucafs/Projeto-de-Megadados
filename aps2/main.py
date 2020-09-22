@@ -1,10 +1,12 @@
-from fastapi import FastAPI, HTTPException
-from pydantic import BaseModel
-
 import uuid
-import json
 
-app = FastAPI()
+from typing import Optional, Dict
+
+from fastapi import FastAPI, HTTPException
+from pydantic import BaseModel, Field
+
+
+# pylint: disable=too-few-public-methods
 
 class DBSession:
     tasks = {}
@@ -31,6 +33,10 @@ class DBSession:
             self.tasks[uuid_] = item
         else:
             return "UUID not found"
+            
+    def alter_task(self, uuid_, item):
+        update_data = item.dict(exclude_unset=True)
+        self.tasks[uuid_] = self.tasks[uuid_].copy(update=update_data)
     
     def remove_task(self, uuid_):
         if uuid_ in self.tasks:
@@ -40,118 +46,130 @@ class DBSession:
 
 def get_db():
     return DBSession()
+class Task(BaseModel):
+    description: Optional[str] = Field(
+        'no description',
+        title='Task description',
+        max_length=1024,
+    )
+    completed: Optional[bool] = Field(
+        False,
+        title='Shows whether the task was completed',
+    )
+
+    class Config:
+        schema_extra = {
+            'example': {
+                'description': 'Buy baby diapers',
+                'completed': False,
+            }
+        }
 
 
-class Assignment(BaseModel):
-    description: str
-    status: bool
+tags_metadata = [
+    {
+        'name': 'task',
+        'description': 'Operations related to tasks.',
+    },
+]
 
-@app.post("/assignment")
-def insert_assignment(assignment: Assignment):
-    with open("db.json") as f:
-        data = json.load(f)
-        data[str(uuid.uuid4())] = ({
-            "description": assignment.description,
-            "status": assignment.status
-        })
-    with open('db.json', 'w') as f:
-        json.dump(data, f)
+app = FastAPI(
+    title='Task list',
+    description='Task-list project for the **Megadados** course',
+    openapi_tags=tags_metadata,
+)
 
-    return "Assignment added to database"
-    
-@app.get("/assignment/active")
-def list_all_active_assignment():
-    with open("db.json") as f:
-        response = []
-        data = json.load(f)
-        for assignment in data:
-            if data[assignment]['status'] == True:
-                data[assignment]['id'] = assignment
-                response.append(data[assignment])
-        return response
 
-@app.get("/assignment/all")
-def list_all_assignment():
-    with open("db.json") as f:
-        response = []
-        data = json.load(f)
-        for assignment in data:
-            data[assignment]['id'] = assignment
-            response.append(data[assignment])
-        return response
+@app.get(
+    '/task',
+    tags=['task'],
+    summary='Reads task list',
+    description='Reads the whole task list.',
+    response_model=Dict[uuid.UUID, Task],
+)
+async def read_tasks(completed: bool = None):
+    if completed is None:
+        return tasks
+    return {
+        uuid_: item
+        for uuid_, item in tasks.items() if item.completed == completed
+    }
 
-@app.get("/assignment/{assignment_id}")
-def get_assignment(assignment_id: str):
-    with open("db.json") as f:
-        data = json.load(f)
+
+@app.post(
+    '/task',
+    tags=['task'],
+    summary='Creates a new task',
+    description='Creates a new task and returns its UUID.',
+    response_model=uuid.UUID,
+)
+async def create_task(item: Task):
+    uuid_ = uuid.uuid4()
+    tasks[uuid_] = item
+    return uuid_
+
+
+@app.get(
+    '/task/{uuid_}',
+    tags=['task'],
+    summary='Reads task',
+    description='Reads task from UUID.',
+    response_model=Task,
+)
+async def read_task(uuid_: uuid.UUID):
     try:
-        return data[assignment_id]
-    except:
-        raise HTTPException(status_code=404, detail="ID not found on database")
+        return tasks[uuid_]
+    except KeyError as exception:
+        raise HTTPException(
+            status_code=404,
+            detail='Task not found',
+        ) from exception
 
-@app.patch("/assignment/activate/{assignment_id}")
-def activate_assigment(assignment_id: str):
-    with open("db.json") as f:
-        data = json.load(f)
+
+@app.put(
+    '/task/{uuid_}',
+    tags=['task'],
+    summary='Replaces a task',
+    description='Replaces a task identified by its UUID.',
+)
+async def replace_task(uuid_: uuid.UUID, item: Task):
     try:
-        if data[assignment_id]['status'] == True:
-            return "Assigment already activated"
-        else:
-            data[assignment_id]['status'] = True
-            with open('db.json', 'w') as f:
-                json.dump(data, f)  
-            return (assignment_id + " activated sucessfully")
-    except:
-        raise HTTPException(status_code=404, detail="ID not found on database")
+        tasks[uuid_] = item
+    except KeyError as exception:
+        raise HTTPException(
+            status_code=404,
+            detail='Task not found',
+        ) from exception
 
-@app.patch("/assignment/deactivate/{assignment_id}")
-def deactivate_assigment(assignment_id: str):
-    with open("db.json") as f:
-        data = json.load(f)
+
+@app.patch(
+    '/task/{uuid_}',
+    tags=['task'],
+    summary='Alters task',
+    description='Alters a task identified by its UUID',
+)
+async def alter_task(uuid_: uuid.UUID, item: Task):
     try:
-        if data[assignment_id]['status'] == False:
-            return "Assigment already deactived"
-        else:
-            data[assignment_id]['status'] = False
-            with open('db.json', 'w') as f:
-                json.dump(data, f)  
-            return (assignment_id + " deactivated sucessfully")
-    except:
-        raise HTTPException(status_code=404, detail="ID not found on database")
+        update_data = item.dict(exclude_unset=True)
+        tasks[uuid_] = tasks[uuid_].copy(update=update_data)
+    except KeyError as exception:
+        raise HTTPException(
+            status_code=404,
+            detail='Task not found',
+        ) from exception
 
-@app.delete("/assignment/{assignment_id}")
-def delete_active_assignment(assignment_id: str):
-    with open("db.json") as f:
-        data = json.load(f)
+
+@app.delete(
+    '/task/{uuid_}',
+    tags=['task'],
+    summary='Deletes task',
+    description='Deletes a task identified by its UUID',
+)
+async def remove_task(uuid_: uuid.UUID):
     try:
-        del data[assignment_id]
-        with open('db.json', 'w') as f:
-            json.dump(data, f)    
-        return assignment_id + " deleted sucessfully"
-    except:
-        raise HTTPException(status_code=404, detail="ID not found on database")
-
-@app.put("/assignment/{assignment_id}")
-def modify_assigment(assignment_id: str, assigment: Assignment = None):
-    try:
-        with open("db.json") as f:
-            data = json.load(f)
-        if assigment is None:
-            return "You didn't send the information to modify the assignment"
-        elif assigment.description is not None:
-            if assigment.status is not None:
-                data[assignment_id]['description'] = assigment.description
-                data[assignment_id]['status'] = assigment.status
-            else:
-                data[assignment_id]['description'] = assigment.description
-        elif assigment.status is not None:
-            data[assignment_id]['status'] = assigment.status
-
-    except:
-        raise HTTPException(status_code=404, detail="ID not found on database")
-    
-    with open('db.json', 'w') as f:
-        json.dump(data, f)
-
-    return (str(assignment_id) + " modified sucessfully")
-
+        del tasks[uuid_]
+    except KeyError as exception:
+        raise HTTPException(
+            status_code=404,
+            detail='Task not found',
+        ) from exception
