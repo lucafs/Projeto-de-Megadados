@@ -1,146 +1,157 @@
-# pylint: disable=missing-module-docstring, missing-function-docstring, missing-class-docstring
-import uuid
-
-from typing import Optional, Dict
-
 from fastapi import FastAPI, HTTPException
-from pydantic import BaseModel, Field
+from pydantic import BaseModel
+
+import uuid
+import json
+
+app = FastAPI()
 
 class DBSession:
     tasks = {}
-
     def __init__(self):
         self.tasks = DBSession.tasks
+    
+    def read_tasks(self, completed):
+        return {
+            uuid_: item
+            for uuid_, item in self.tasks.items()
+            if item.completed == completed
+        }
+
+    def create_task(self, content):
+        uuid_ = uuid.uuid4()
+        self.tasks[uuid_] = content
+        return ("Task " + uuid_ + " was created with success")
+    
+    def read_task(self, uuid_):
+        return self.tasks[uuid_]
+    
+    def replace_task(self, uuid_, item):
+        if uuid_ in self.tasks:
+            self.tasks[uuid_] = item
+        else:
+            return "UUID not found"
+    
+    def remove_task(self, uuid_):
+        if uuid_ in self.tasks:
+            del self.tasks[uuid_]
+            return "Task removida com sucesso"
+        return "UUID not found"
+
 def get_db():
     return DBSession()
 
-# pylint: disable=too-few-public-methods
-class Task(BaseModel):
-    description: Optional[str] = Field(
-        'no description',
-        title='Task description',
-        max_length=1024,
-    )
-    completed: Optional[bool] = Field(
-        False,
-        title='Shows whether the task was completed',
-    )
 
-    class Config:
-        schema_extra = {
-            'example': {
-                'description': 'Buy baby diapers',
-                'completed': False,
-            }
-        }
+class Assignment(BaseModel):
+    description: str
+    status: bool
 
+@app.post("/assignment")
+def insert_assignment(assignment: Assignment):
+    with open("db.json") as f:
+        data = json.load(f)
+        data[str(uuid.uuid4())] = ({
+            "description": assignment.description,
+            "status": assignment.status
+        })
+    with open('db.json', 'w') as f:
+        json.dump(data, f)
 
-tags_metadata = [
-    {
-        'name': 'task',
-        'description': 'Operations related to tasks.',
-    },
-]
+    return "Assignment added to database"
+    
+@app.get("/assignment/active")
+def list_all_active_assignment():
+    with open("db.json") as f:
+        response = []
+        data = json.load(f)
+        for assignment in data:
+            if data[assignment]['status'] == True:
+                data[assignment]['id'] = assignment
+                response.append(data[assignment])
+        return response
 
-app = FastAPI(
-    title='Task list',
-    description='Task-list project for the **Megadados** course',
-    openapi_tags=tags_metadata,
-)
+@app.get("/assignment/all")
+def list_all_assignment():
+    with open("db.json") as f:
+        response = []
+        data = json.load(f)
+        for assignment in data:
+            data[assignment]['id'] = assignment
+            response.append(data[assignment])
+        return response
 
-tasks = {}
-
-
-@app.get(
-    '/task',
-    tags=['task'],
-    summary='Reads task list',
-    description='Reads the whole task list.',
-    response_model=Dict[uuid.UUID, Task],
-)
-async def read_tasks(completed: bool = None):
-    if completed is None:
-        return tasks
-    return {
-        uuid_: item
-        for uuid_, item in tasks.items() if item.completed == completed
-    }
-
-
-@app.post(
-    '/task',
-    tags=['task'],
-    summary='Creates a new task',
-    description='Creates a new task and returns its UUID.',
-    response_model=uuid.UUID,
-)
-async def create_task(item: Task):
-    uuid_ = uuid.uuid4()
-    tasks[uuid_] = item
-    return uuid_
-
-
-@app.get(
-    '/task/{uuid_}',
-    tags=['task'],
-    summary='Reads task',
-    description='Reads task from UUID.',
-    response_model=Task,
-)
-async def read_task(uuid_: uuid.UUID):
+@app.get("/assignment/{assignment_id}")
+def get_assignment(assignment_id: str):
+    with open("db.json") as f:
+        data = json.load(f)
     try:
-        return tasks[uuid_]
-    except KeyError as exception:
-        raise HTTPException(
-            status_code=404,
-            detail='Task not found',
-        ) from exception
+        return data[assignment_id]
+    except:
+        raise HTTPException(status_code=404, detail="ID not found on database")
 
-
-@app.put(
-    '/task/{uuid_}',
-    tags=['task'],
-    summary='Replaces a task',
-    description='Replaces a task identified by its UUID.',
-)
-async def replace_task(uuid_: uuid.UUID, item: Task):
+@app.patch("/assignment/activate/{assignment_id}")
+def activate_assigment(assignment_id: str):
+    with open("db.json") as f:
+        data = json.load(f)
     try:
-        tasks[uuid_] = item
-    except KeyError as exception:
-        raise HTTPException(
-            status_code=404,
-            detail='Task not found',
-        ) from exception
+        if data[assignment_id]['status'] == True:
+            return "Assigment already activated"
+        else:
+            data[assignment_id]['status'] = True
+            with open('db.json', 'w') as f:
+                json.dump(data, f)  
+            return (assignment_id + " activated sucessfully")
+    except:
+        raise HTTPException(status_code=404, detail="ID not found on database")
 
-
-@app.patch(
-    '/task/{uuid_}',
-    tags=['task'],
-    summary='Alters task',
-    description='Alters a task identified by its UUID',
-)
-async def alter_task(uuid_: uuid.UUID, item: Task):
+@app.patch("/assignment/deactivate/{assignment_id}")
+def deactivate_assigment(assignment_id: str):
+    with open("db.json") as f:
+        data = json.load(f)
     try:
-        update_data = item.dict(exclude_unset=True)
-        tasks[uuid_] = tasks[uuid_].copy(update=update_data)
-    except KeyError as exception:
-        raise HTTPException(
-            status_code=404,
-            detail='Task not found',
-        ) from exception
+        if data[assignment_id]['status'] == False:
+            return "Assigment already deactived"
+        else:
+            data[assignment_id]['status'] = False
+            with open('db.json', 'w') as f:
+                json.dump(data, f)  
+            return (assignment_id + " deactivated sucessfully")
+    except:
+        raise HTTPException(status_code=404, detail="ID not found on database")
 
-
-@app.delete(
-    '/task/{uuid_}',
-    tags=['task'],
-    summary='Deletes task',
-    description='Deletes a task identified by its UUID',
-)
-async def remove_task(uuid_: uuid.UUID):
+@app.delete("/assignment/{assignment_id}")
+def delete_active_assignment(assignment_id: str):
+    with open("db.json") as f:
+        data = json.load(f)
     try:
-        del tasks[uuid_]
-    except KeyError as exception:
-        raise HTTPException(
-            status_code=404,
-            detail='Task not found',
-        ) from exception
+        del data[assignment_id]
+        with open('db.json', 'w') as f:
+            json.dump(data, f)    
+        return assignment_id + " deleted sucessfully"
+    except:
+        raise HTTPException(status_code=404, detail="ID not found on database")
+
+@app.put("/assignment/{assignment_id}")
+def modify_assigment(assignment_id: str, assigment: Assignment = None):
+    try:
+        with open("db.json") as f:
+            data = json.load(f)
+        if assigment is None:
+            return "You didn't send the information to modify the assignment"
+        elif assigment.description is not None:
+            if assigment.status is not None:
+                data[assignment_id]['description'] = assigment.description
+                data[assignment_id]['status'] = assigment.status
+            else:
+                data[assignment_id]['description'] = assigment.description
+        elif assigment.status is not None:
+            data[assignment_id]['status'] = assigment.status
+
+    except:
+        raise HTTPException(status_code=404, detail="ID not found on database")
+    
+    with open('db.json', 'w') as f:
+        json.dump(data, f)
+
+    return (str(assignment_id) + " modified sucessfully")
+
