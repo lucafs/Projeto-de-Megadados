@@ -7,7 +7,7 @@ from random import randrange
 
 client = TestClient(app)
 
-# Got from stackoverflow https://stackoverflow.com/questions/19989481/how-to-determine-if-a-string-is-a-valid-v4-uuid
+# Pego pelo stackoverflow https://stackoverflow.com/questions/19989481/how-to-determine-if-a-string-is-a-valid-v4-uuid
 def is_valid_uuid(val):
     try:
         uuidf.UUID(str(val))
@@ -98,7 +98,7 @@ def test_list_task_randomly_get_one_if_does_not_exists_creates_and_replace_task_
         assert response.status_code == 200
         assert response.json() == {'description': 'Replace description', 'completed': True}
 
-def test_create_task_and_delete_task():
+def test_create_task_and_delete_task_and_check_if_exists_on_list():
     response = client.post('/task', json={"completed": "True", "description": "This is a test task"})
     assert response.status_code == 200
     assert is_valid_uuid(response.json()) == True
@@ -111,4 +111,27 @@ def test_create_task_and_delete_task():
 
     assert task_uuid not in client.get('/task')
 
-def 
+def test_replace_task_that_does_not_exists():
+    # No caso que não existe está criando se eu não me engano foi mencionado em aula.
+    uuid = uuidf.uuid4()
+    response = client.put('/task/' + str(uuid), json={'description': 'Replace description', 'completed': True})
+    assert response.status_code == 200
+    assert response.json() == None
+
+def test_change_task_that_does_not_exists():
+    uuid = uuidf.uuid4()
+    response = client.patch('/task/' + str(uuid) , json={"completed": "False"})
+    assert response.status_code == 404
+    assert response.json() == {'detail': 'Task not found'}
+
+def test_delete_task_that_does_not_exists():
+    uuid = uuidf.uuid4()
+    response = client.delete('/task/' + str(uuid))
+    assert response.status_code == 404
+    assert response.json() == {'detail': 'Task not found'}
+
+def test_get_test_that_does_not_exists():
+    uuid = uuidf.uuid4()
+    response = client.get('/task/' + str(uuid))
+    assert response.status_code == 404
+    assert response.json() == {'detail': 'Task not found'}
