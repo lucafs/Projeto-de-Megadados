@@ -2,7 +2,7 @@ import uuid
 
 from typing import Optional, Dict
 
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Depends
 from pydantic import BaseModel, Field
 
 
@@ -13,39 +13,41 @@ class DBSession:
     def __init__(self):
         self.tasks = DBSession.tasks
     
-    def read_tasks(self, completed):
+    def read_assignments(self, completed):
         return {
             uuid_: item
             for uuid_, item in self.tasks.items()
             if item.completed == completed
         }
 
-    def create_task(self, content):
+    def create_assignment(self, content):
         uuid_ = uuid.uuid4()
         self.tasks[uuid_] = content
-        return ("Task " + uuid_ + " was created with success")
+        return uuid_ 
     
-    def read_task(self, uuid_):
+    def read_assignment(self, uuid_):
         return self.tasks[uuid_]
     
-    def replace_task(self, uuid_, item):
+    def replace_assignment(self, uuid_, item):
         if uuid_ in self.tasks:
             self.tasks[uuid_] = item
         else:
-            return "UUID not found"
+            return "Task not found"
             
-    def alter_task(self, uuid_, item):
+    def alter_assignment(self, uuid_, item):
         update_data = item.dict(exclude_unset=True)
         self.tasks[uuid_] = self.tasks[uuid_].copy(update=update_data)
     
-    def remove_task(self, uuid_):
+    def remove_assignment(self, uuid_):
         if uuid_ in self.tasks:
             del self.tasks[uuid_]
             return "Task removida com sucesso"
-        return "UUID not found"
+        return "Task not found"
 
 def get_db():
     return DBSession()
+
+
 class Task(BaseModel):
     description: Optional[str] = Field(
         'no description',
@@ -87,13 +89,8 @@ app = FastAPI(
     description='Reads the whole task list.',
     response_model=Dict[uuid.UUID, Task],
 )
-async def read_tasks(completed: bool = None):
-    if completed is None:
-        return tasks
-    return {
-        uuid_: item
-        for uuid_, item in tasks.items() if item.completed == completed
-    }
+async def read_assignments(completed: bool = None, dB: DBSession = Depends(get_db)):
+    return dB.read_assignments(completed)
 
 
 @app.post(
@@ -103,10 +100,8 @@ async def read_tasks(completed: bool = None):
     description='Creates a new task and returns its UUID.',
     response_model=uuid.UUID,
 )
-async def create_task(item: Task):
-    uuid_ = uuid.uuid4()
-    tasks[uuid_] = item
-    return uuid_
+async def create_assignment(item: Task, dB: DBSession = Depends(get_db)):
+    return dB.create_assignment(item)
 
 
 @app.get(
@@ -116,9 +111,9 @@ async def create_task(item: Task):
     description='Reads task from UUID.',
     response_model=Task,
 )
-async def read_task(uuid_: uuid.UUID):
+async def read_assignment(uuid_: uuid.UUID, db: DBSession = Depends(get_db)):
     try:
-        return tasks[uuid_]
+        return db.read_assignment(uuid_)
     except KeyError as exception:
         raise HTTPException(
             status_code=404,
@@ -132,9 +127,10 @@ async def read_task(uuid_: uuid.UUID):
     summary='Replaces a task',
     description='Replaces a task identified by its UUID.',
 )
-async def replace_task(uuid_: uuid.UUID, item: Task):
+async def replace_assignment(uuid_: uuid.UUID, item: Task, dB: DBSession = Depends(get_db)):
     try:
-        tasks[uuid_] = item
+        if dB.replace_assignment(uuid_, item) == "UUID not found":
+            raise HTTPException(status_code=404,detail='UUID not found')
     except KeyError as exception:
         raise HTTPException(
             status_code=404,
@@ -148,10 +144,9 @@ async def replace_task(uuid_: uuid.UUID, item: Task):
     summary='Alters task',
     description='Alters a task identified by its UUID',
 )
-async def alter_task(uuid_: uuid.UUID, item: Task):
+async def alter_assignment(uuid_: uuid.UUID, item: Task, dB: DBSession = Depends(get_db)):
     try:
-        update_data = item.dict(exclude_unset=True)
-        tasks[uuid_] = tasks[uuid_].copy(update=update_data)
+        dB.alter_assignment(uuid_, item)
     except KeyError as exception:
         raise HTTPException(
             status_code=404,
@@ -165,11 +160,12 @@ async def alter_task(uuid_: uuid.UUID, item: Task):
     summary='Deletes task',
     description='Deletes a task identified by its UUID',
 )
-async def remove_task(uuid_: uuid.UUID):
+async def remove_assignment(uuid_: uuid.UUID, dB: DBSession = Depends(get_db)):
     try:
-        del tasks[uuid_]
+        if dB.remove_assignment(uuid_) == "Task not found":
+            raise HTTPException(status_code=404,detail='Task not found')
     except KeyError as exception:
         raise HTTPException(
             status_code=404,
             detail='Task not found',
-        ) from exception
+        ) from exception 
