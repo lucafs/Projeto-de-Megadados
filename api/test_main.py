@@ -1,5 +1,5 @@
 from fastapi.testclient import TestClient
-from main import app
+from .main import app
 
 import uuid as uuidf
 from random import randrange
